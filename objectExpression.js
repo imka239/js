@@ -1,6 +1,5 @@
-const Simple = {
-    simplify : function() {return this;}
-};
+const Simple = function () {};
+Simple.prototype.simplify = function() {return this;};
 
 const vars = {
     "x" : 0,
@@ -15,7 +14,7 @@ const Const = function(val) {
     this.val = val;
 };
 
-Const.prototype = Object.create(Simple);
+Const.prototype = Object.create(Simple.prototype);
 Const.prototype.evaluate = function () { return this.val; };
 Const.prototype.toString = function () { return this.val.toString(); };
 Const.prototype.diff = function () { return ZERO; };
@@ -35,7 +34,7 @@ const Variable = function(name) {
     this.id = vars[name];
     this.name = name;
 };
-Variable.prototype = Object.create(Simple);
+Variable.prototype = Object.create(Simple.prototype);
 Variable.prototype.evaluate = function (...args) {  return args[this.id]; };
 Variable.prototype.toString = function () { return this.name; };
 Variable.prototype.diff = function (val) { return (val === this.name ? ONE : ZERO); };
