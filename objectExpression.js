@@ -21,9 +21,6 @@ Const.prototype.toString = function () { return this.val.toString(); };
 Const.prototype.diff = function () { return ZERO; };
 Const.prototype.isConst = true;
 
-const ONE = new Const(1);
-const ZERO = new Const(0);
-
 const isConst = function (x) {
     return x !== undefined && x.isConst !== undefined;
 };
@@ -31,15 +28,23 @@ const isConst = function (x) {
 const isZero = x => x.isConst && x.val === 0;
 const isOne = x => x.isConst && x.val === 1;
 
+const ONE = new Const(1);
+const ZERO = new Const(0);
+
 const Variable = function(name) {
+    this.id = vars[name];
     this.name = name;
 };
 Variable.prototype = Object.create(Simple);
-Variable.prototype.evaluate = function (...args) { const id = vars[this.name]; return args[id]; };
+Variable.prototype.evaluate = function (...args) {  return args[this.id]; };
 Variable.prototype.toString = function () { return this.name; };
 Variable.prototype.diff = function (val) { return (val === this.name ? ONE : ZERO); };
 
-let Operation = {
+let Operation = function(){};
+Operation.prototype.evaluate = function (...args) { return this.getOperation(...this.getArgs.map(arg => arg.evaluate(...args)))};
+Operation.prototype.toString = function () { return this.getArgs.join(" ") + " " + this.getSymbol; };
+Operation.prototype.diff = function (name) { return this.getDiff(...this.getArgs, ...this.getArgs.map(arg => arg.diff(name))); };
+/*let Operation = {
     evaluate : function (...args) {return this.getOperation(...this.getArgs.map(arg => arg.evaluate(...args)))},
     toString : function () {
         return this.getArgs.join(" ") + " " + this.getSymbol;
@@ -59,7 +64,7 @@ let Operation = {
         }
         return this.constructor(...simpleArgs);
     }
-};
+};*/
 
 function generator(sym, op, diff_impl, simpl_impl) {
     let ret = function (...arg) {
@@ -170,5 +175,5 @@ const parse = source => {
 
 
 
-let A = new Const(10).diff('x').evaluate(0);
+let A = new Add(new Variable('x'), new Const(2));
 console.log(A);
