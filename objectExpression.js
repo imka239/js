@@ -51,8 +51,7 @@ Operation.prototype.postfix = function () {
 Operation.prototype.diff = function (name) { return this.getDiff(...this.getArgs, ...this.getArgs.map(arg => arg.diff(name))); };
 Operation.prototype.simplify = function () {
     let simpleArgs = this.getArgs.map(arg => arg.simplify());
-    let onlyConst = 1;
-    simpleArgs.forEach(token => {if (!isConst(token)) {onlyConst = 0;}});
+    let onlyConst = simpleArgs.every(isConst);
     if (onlyConst) {
         return new Const(new this.constructor(...simpleArgs).evaluate());
     }
@@ -74,11 +73,15 @@ function generator(sym, op, diff_impl, simpl_impl) {
     ret.prototype.constructor = ret;
     return ret;
 }
-const Negate = generator("negate", function(a) {return -a}, function(a, da) {return new Negate(da)});
+const Negate = generator("negate", (a) => -a,
+    (a, da) => new Negate(da));
 
-const ArcTan = generator("atan", function(a) {return Math.atan(a)},function(a, da) {return new Divide(da, new Add(new Const(1), new Multiply(a, a)))});
-const Add = generator("+", function(a, b) {return a + b}, function(a, b, da, db) {return new Add(da, db)},
-    function(a, b){
+const ArcTan = generator("atan", Math.atan,
+    (a, da) => new Divide(da, new Add(ONE, new Multiply(a, a))));
+
+const Add = generator("+", (a, b) => a + b,
+    (a, b, da, db) => new Add(da, db),
+    (a, b) => {
         if (isZero(a)) {
             return b;
         }
@@ -88,8 +91,9 @@ const Add = generator("+", function(a, b) {return a + b}, function(a, b, da, db)
         return new Add(a, b);
     });
 
-const Subtract = generator("-", function(a, b) {return a - b},function(a, b, da, db) {return new Subtract(da, db)},
-    function(a, b) {
+const Subtract = generator("-", (a, b) => a - b,
+    (a, b, da, db) => new Subtract(da, db),
+    (a, b) => {
         if (isZero(b)) {
             return a;
         }
@@ -99,9 +103,10 @@ const Subtract = generator("-", function(a, b) {return a - b},function(a, b, da,
         return new Subtract(a, b);
     });
 
-const ArcTan2 = generator("atan2",function(a, b) {return Math.atan2(a, b)},
-    function(a, b, da, db) {return new Divide(new Subtract(new Multiply(da, b), new Multiply(db, a)), new Add(new Multiply(a, a), new Multiply(b, b)))},
-    function(a, b){
+const ArcTan2 = generator("atan2",(a, b) => Math.atan2(a, b),
+    (a, b, da, db) => new Divide(new Subtract(new Multiply(da, b), new Multiply(db, a)),
+        new Add(new Multiply(a, a), new Multiply(b, b))),
+    (a, b) => {
         if (isZero(a) && !isZero(b)) {
             return new Const(0);
         }
@@ -111,32 +116,9 @@ const ArcTan2 = generator("atan2",function(a, b) {return Math.atan2(a, b)},
         return new ArcTan2(a, b);
     });
 
-const Sumexp = generator("sumexp", function(...arr) { return arr.reduce((ret, val) => ret + Math.exp(val), 0)},
-    function (...arr) {
-        let ret = CONST_ZERO;
-        let half = arr.length / 2;
-        for (let i = 0; i < half; ++i) {
-            ret = new Add(ret, new Multiply(new Sumexp(arr[i]), arr[i + half]));
-        }
-        return ret;
-    }
-);
-
-const Softmax = generator("softmax",
-    function(...arr) {return Math.exp(arr[0]) / arr.reduce((a, b) => a + Math.exp(b), 0)},
-    function(...arr) {
-        let ans = CONST_ZERO;
-        let half = arr.length / 2;
-        let halfexp = new Sumexp(...arr.slice(0, half));
-        for (let i = 0; i < half; ++i) {
-            ans = new Add(ans, new Multiply(new Sumexp(arr[i]), arr[i + half]));
-        }
-        return new Divide(new Subtract(new Multiply(new Multiply(new Sumexp(arr[0]), arr[half]), halfexp), new Multiply(ans, new Sumexp(arr[0]))), new Multiply(halfexp, halfexp));
-    }
-);
-
-const Multiply = generator("*", function(a, b) {return a * b}, function(a, b, da, db) {return new Add(new Multiply(a, db), new Multiply(da, b))},
-    function(a, b) {
+const Multiply = generator("*", (a, b) => a * b,
+    (a, b, da, db) => new Add(new Multiply(a, db), new Multiply(da, b)),
+    (a, b) => {
         if (isZero(a) || isZero(b)) {
             return new Const(0);
         }
@@ -149,8 +131,9 @@ const Multiply = generator("*", function(a, b) {return a * b}, function(a, b, da
         return new Multiply(a, b);
     });
 
-const Divide = generator("/", function(a, b) {return a / b},function(a, b, da, db) {return new Divide(new Subtract(new Multiply(da, b), new Multiply(db, a)), new Multiply(b, b))},
-    function(a, b) {
+const Divide = generator("/", (a, b) => a / b,
+    (a, b, da, db) => new Divide(new Subtract(new Multiply(da, b), new Multiply(db, a)), new Multiply(b, b)),
+    (a, b) => {
         if (isZero(a)) {
             return new Const(0);
         }
@@ -160,27 +143,42 @@ const Divide = generator("/", function(a, b) {return a / b},function(a, b, da, d
         return new Divide(a, b);
     });
 
+const Sumexp = generator("sumexp", (...arr) => arr.reduce((ret, val) => ret + Math.exp(val), 0),
+    (...arr) => {
+        let ret = ZERO;
+        let half = arr.length / 2;
+        for (let i = 0; i < half; ++i) {
+            ret = new Add(ret, new Multiply(new Sumexp(arr[i]), arr[i + half]));
+        }
+        return ret;
+    }
+);
 
-const oper = {
-    "+" : Add,
-    "-" : Subtract,
-    "*" : Multiply,
-    "/" : Divide,
-    "negate" : Negate,
-    "atan" : ArcTan,
-    "atan2" : ArcTan2,
-    "softmax" : Softmax,
-    "sumexp" : Sumexp
-};
+const Softmax = generator("softmax",
+    (...arr) => Math.exp(arr[0]) / arr.reduce((a, b) => a + Math.exp(b), 0),
+    (...arr) => {
+        let ans = ZERO;
+        let half = arr.length / 2;
+        let halfexp = new Sumexp(...arr.slice(0, half));
+        for (let i = 0; i < half; ++i) {
+            ans = new Add(ans, new Multiply(new Sumexp(arr[i]), arr[i + half]));
+        }
+        return new Divide(new Subtract(new Multiply(new Multiply(new Sumexp(arr[0]), arr[half]), halfexp), new Multiply(ans, new Sumexp(arr[0]))),
+            new Multiply(halfexp, halfexp));
+    }
+);
 
-const need = {
-    "+" : 2,
-    "-" : 2,
-    "*" : 2,
-    "/" : 2,
-    "negate" : 1,
-    "atan" : 1,
-    "atan2" : 2
+
+const OPER = {
+    "+" : [Add, 2],
+    "-" : [Subtract, 2],
+    "*" : [Multiply, 2],
+    "/" : [Divide, 2],
+    "negate" : [Negate, 1],
+    "atan" : [ArcTan, 1],
+    "atan2" : [ArcTan2, 2],
+    "softmax" : [Softmax, 0],
+    "sumexp" : [Sumexp, 0]
 };
 
 const VARIABLE = {};
@@ -191,10 +189,10 @@ for (let v in vars) {
 const parse = source => {
     let stack = [];
     source.split(' ').filter(s => s.length > 0).forEach(token => {
-        if (token in oper) {
-            let args = stack.splice(-need[token]);
-            stack.push(new oper[token](...args))
-        } else if (token in vars) {
+        if (token in OPER) {
+            let args = stack.splice(-OPER[token][1]);
+            stack.push(new OPER[token][0](...args))
+        } else if (token in VARS) {
             stack.push(VARIABLE[token]);
         } else {
             stack.push(new Const(Number(token)));
@@ -215,12 +213,12 @@ const genParser = mode =>
         //console.log(source);
         let i = 0;
         const fail = (expected, found, where) => {
-              let info = "";
-              for (let j = 0; j < where; j++) {
-                  info += " ";
-              }
-              info += "^";
-              throw new ParseException("expected : " + expected + ", found: " + found + '\n' + source + '\n' + info);
+            let info = "";
+            for (let j = 0; j < where; j++) {
+                info += " ";
+            }
+            info += "^";
+            throw new ParseException("expected : " + expected + ", found: " + found + '\n' + source + '\n' + info);
         };
 
         if (source.length === 0) {
@@ -237,7 +235,7 @@ const genParser = mode =>
             skipWhiteSpace();
             let start = i;
             //console.log(i);
-            if (/[()]/.test(source.charAt(i))) {
+            if ("()".includes(source.charAt(i))) {
                 return source.charAt(i++);
             }
             while (i < source.length && !/[\s()]/.test(source.charAt(i))) {
@@ -251,7 +249,7 @@ const genParser = mode =>
             //console.log(i);
             let op = readWord();
             //.log(i);
-            if (!(op in oper)) {
+            if (!(op in OPER)) {
                 fail("operation", "'" + op + "'", i - 1);
             }
             //.log(i);
@@ -289,22 +287,11 @@ const genParser = mode =>
                 skipWhiteSpace();
             }
         }
-
-        function convertToVal(value) {
-            if (value in vars) {
-                return VARIABLE[value];
-            }
-            let val = Number(value);
-            if (!isNaN(val)) {
-                return new Const(val);
-            }
-            fail("value", value, i - value.length, value.length - 1);
-        }
         const prefixParser = (args) => {
             //.log(i);
             let ret = readOperation();
             //.log(i);
-            readArgs(args, need[ret] || 0);
+            readArgs(args, OPER[ret][1]);
             return ret;
         };
 
@@ -328,17 +315,24 @@ const genParser = mode =>
                 let op = MODE(args);
                 //.log(i);
                 skipWhiteSpace();
-                let amount = need[op] || 0;
+                let amount = OPER[op][1] || 0;
                 if (source.charAt(i) !== ')') {
                     fail("), (" + amount + " argument_s) for '" + op + "'", "'" + source.charAt(i) + "'", i);
                 }
-                if (amount && args.length !== need[op]) {
+                if (amount && args.length !== OPER[op][1]) {
                     fail(amount + " argument_s", args.length + " arguments", start, i - start - 1);
                 }
                 i++;
-                return new oper[op](...args);
+                return new OPER[op][0](...args);
             }
-            return convertToVal(tkn);
+            if (tkn in vars) {
+                return VARIABLE[tkn];
+            }
+            let val = Number(tkn);
+            if (!isNaN(val)) {
+                return new Const(val);
+            }
+            fail("value", tkn, i - tkn.length, tkn.length - 1);
         }
 
         let res = parser();
@@ -351,6 +345,3 @@ const genParser = mode =>
 
 const parsePrefix = genParser("prefix");
 const parsePostfix = genParser("postfix");
-
-//let A =  parsePrefix("x");
-//console.log(A);
